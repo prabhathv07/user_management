@@ -76,16 +76,10 @@ jobs:
           # cache-from: type=registry,ref=prabhath090/user_management:cache
           # cache-to: type=inline,mode=max
           
-      - name: Scan the Docker image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'prabhath090/user_management:${{ github.sha }}'
-          format: 'table'
-          exit-code: '0' # Changed to 0 for educational project submission (would be 1 in production)
-          ignore-unfixed: true
-          severity: 'CRITICAL'
-          # Note: In a real production environment, we would fix these vulnerabilities
-          # This is modified for educational purposes only
+      - name: Run Trivy vulnerability scanner
+        if: steps.docker.outputs.push_enabled == 'true'
+        run: |
+          trivy image --exit-code 0 --severity CRITICAL prabhath090/user_management:${{ github.sha }}
 
   build:
     runs-on: ubuntu-latest
