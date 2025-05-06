@@ -60,20 +60,21 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
-      - name: Log in to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: prabhath090
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # Skip DockerHub login for educational project
+      # - name: Log in to DockerHub
+      #   uses: docker/login-action@v3
+      #   with:
+      #     username: prabhath090
+      #     password: ${{ secrets.GITHUB_TOKEN }}
           
-      - name: Build and push Docker image
+      - name: Build Docker image (without push)
         uses: docker/build-push-action@v5
         with:
-          push: true
+          push: false # Changed to false to skip pushing
           tags: prabhath090/user_management:${{ github.sha }} # Uses the Git SHA for tagging
-          platforms: linux/amd64,linux/arm64 # Multi-platform support
-          cache-from: type=registry,ref=prabhath090/user_management:cache
-          cache-to: type=inline,mode=max
+          platforms: linux/amd64 # Simplified for faster builds
+          # cache-from: type=registry,ref=prabhath090/user_management:cache
+          # cache-to: type=inline,mode=max
           
       - name: Scan the Docker image
         uses: aquasecurity/trivy-action@master
@@ -92,15 +93,16 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Docker Login
-      uses: docker/login-action@v3
-      with:
-        username: prabhath090
-        password: ${{ secrets.GITHUB_TOKEN }}
+    # Skip DockerHub login for educational project
+    # - name: Docker Login
+    #   uses: docker/login-action@v3
+    #   with:
+    #     username: prabhath090
+    #     password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build and Push
+    - name: Build Only (without push)
       uses: docker/build-push-action@v5
       with:
         context: .
-        push: true
+        push: false # Changed to false to skip pushing
         tags: prabhath090/user_management:latest
