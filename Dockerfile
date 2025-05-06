@@ -15,7 +15,7 @@ WORKDIR /myapp
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
-    && apt-get install -y libc-bin=2.36-9+deb12u7 \
+    && apt-get install -y --allow-downgrades libc-bin=2.36-9+deb12u7 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,7 +30,7 @@ RUN python -m venv /.venv \
 FROM python:3.12-slim-bookworm as final
 
 # Upgrade libc-bin in the final stage to ensure security patch is applied
-RUN apt-get update && apt-get install -y libc-bin=2.36-9+deb12u7 \
+RUN apt-get update && apt-get install -y --allow-downgrades libc-bin=2.36-9+deb12u7 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -53,8 +53,11 @@ USER myuser
 # Copy application code with appropriate ownership
 COPY --chown=myuser:myuser . .
 
+# Copy CLI entrypoint
+COPY ./app/admin_cli.py /app/app/
+
 # Inform Docker that the container listens on the specified port at runtime.
 EXPOSE 8000
 
 # Use ENTRYPOINT to specify the executable when the container starts.
-ENTRYPOINT ["uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
