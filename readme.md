@@ -4,6 +4,7 @@
 
 ## Introduction: Buckle Up for the Ride of a Lifetime 🚀🎬
 
+Welcome to the User Management System project - an epic open-source adventure crafted by the legendary Professor Keith Williams for his rockstar students at NJIT! 🏫👨‍🏫⭐ This project is your gateway to coding glory, providing a bulletproof foundation for a user management system that will blow your mind! 🤯 You'll bridge the gap between the realms of seasoned software pros and aspiring student developers like yourselves. 
 
 ### [Instructor Video - Project Overview and Tips](https://youtu.be/gairLNAp6mA) 🎥
 
@@ -45,15 +46,6 @@ This project requires effective time management and a well-planned strategy, but
 
 5. **Maintain a Working Main Branch**: Throughout the project, ensure you always have a working main branch deploying to Docker like a well-oiled machine. This will prevent any last-minute headaches and ensure a smooth submission process - no tears allowed, only triumphs! 😊🚢⚓ Stay focused, stay victorious!
 
-Remember, it's more important to make something work reliably and be reasonably complete than to implement an overly complex feature. Focus on creating a feature that you can build upon or demonstrate in an interview setting - show off your skills like a rockstar! 💪🚀🎓
-
-Don't forget to always have a working main branch deploying to Docker at all times. If you always have a working main branch, you will never be in jeopardy of receiving a very disappointing grade :-). Keep that main branch shining bright!
-
-Let's embark on this epic coding adventure together and conquer the world of software engineering! You've got this, coding rockstars! 🚀🌟✨
-
-## Trigger GitHub Actions Workflow
-This line was added to trigger the CI/CD pipeline.
-
 ## Fixed Issues
 
 1. **DockerHub Authentication Failure (#1)** - CLOSED
@@ -80,3 +72,45 @@ This line was added to trigger the CI/CD pipeline.
    - Issue: Bulk user creation test failing under load
    - Solution: Optimized test data and database operations
    - Fixed in commit: [1a8e1ac](https://github.com/prabhathv07/user_management/commit/1a8e1ac)
+
+## Test Coverage Improvements
+
+Added 10 comprehensive tests to improve code coverage across critical areas:
+
+1. **Password Complexity Validation**
+   - Tests password requirements enforcement (length, uppercase, lowercase, numbers, special chars)
+
+2. **Email Verification Token Expiration**
+   - Verifies that verification tokens expire after the configured time period
+
+3. **Concurrent User Creation Performance**
+   - Tests system's ability to handle multiple user creations simultaneously
+
+4. **Role-Based Access Control**
+   - Validates that different user roles have appropriate access to endpoints
+
+5. **Login Rate Limiting**
+   - Tests protection against brute force attacks through rate limiting
+
+6. **Password Reset Functionality**
+   - Verifies complete password reset flow works correctly
+
+7. **User Search and Filtering**
+   - Tests ability to search and filter users by various criteria
+
+8. **User Data Validation on Update**
+   - Ensures proper validation of user data during updates
+
+9. **Database Transaction Rollback**
+   - Verifies that database transactions are properly rolled back when errors occur
+
+10. **User Account Locking and Unlocking**
+    - Tests the complete flow of locking a user account and then unlocking it
+
+Remember, it's more important to make something work reliably and be reasonably complete than to implement an overly complex feature. Focus on creating a feature that you can build upon or demonstrate in an interview setting - show off your skills like a rockstar! 💪🚀🎓
+
+Don't forget to always have a working main branch deploying to Docker at all times. If you always have a working main branch, you will never be in jeopardy of receiving a very disappointing grade :-). Keep that main branch shining bright!
+
+Let's embark on this epic coding adventure together and conquer the world of software engineering! You've got this, coding rockstars! 🚀🌟✨
+## Trigger GitHub Actions Workflow
+This line was added to trigger the CI/CD pipeline.
