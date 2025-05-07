@@ -1,9 +1,9 @@
 from builtins import Exception, bool, classmethod, int, str
 from datetime import datetime, timezone
 import secrets
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 from pydantic import ValidationError
-from sqlalchemy import func, null, update, select
+from sqlalchemy import func, null, update, select, or_, and_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_email_service, get_settings
@@ -34,8 +34,8 @@ class UserService:
     @classmethod
     async def _fetch_user(cls, session: AsyncSession, **filters) -> Optional[User]:
         query = select(User).filter_by(**filters)
-        result = await cls._execute_query(session, query)
-        return result.scalars().first() if result else None
+        result = await session.execute(query)
+        return result.scalars().first()
 
     @classmethod
     async def get_by_id(cls, session: AsyncSession, user_id: UUID) -> Optional[User]:
@@ -83,18 +83,34 @@ class UserService:
     @classmethod
     async def update(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, str]) -> Optional[User]:
         try:
-            # validated_data = UserUpdate(**update_data).dict(exclude_unset=True)
             validated_data = UserUpdate(**update_data).model_dump(exclude_unset=True)
 
             if 'password' in validated_data:
                 validated_data['hashed_password'] = hash_password(validated_data.pop('password'))
+            
+            # Handle JSON fields properly
+            for field in ['skills', 'interests', 'education', 'work_experience']:
+                if field in validated_data and validated_data[field] is not None:
+                    # Ensure these are stored as proper JSON
+                    if isinstance(validated_data[field], str):
+                        try:
+                            import json
+                            validated_data[field] = json.loads(validated_data[field])
+                        except json.JSONDecodeError:
+                            # If not valid JSON, store as a single-item list
+                            validated_data[field] = [validated_data[field]]
+            
             query = update(User).where(User.id == user_id).values(**validated_data).execution_options(synchronize_session="fetch")
             await cls._execute_query(session, query)
-            updated_user = await cls.get_by_id(session, user_id)
-            if updated_user:
-                session.refresh(updated_user)  # Explicitly refresh the updated user object
-                logger.info(f"User {user_id} updated successfully.")
-                return updated_user
+            
+            # Fetch the updated user
+            user = await cls.get_by_id(session, user_id)
+            if user:
+                # Calculate and update profile completion percentage
+                user.calculate_profile_completion()
+                session.add(user)
+                await session.commit()
+                return user
             else:
                 logger.error(f"User {user_id} not found after update attempt.")
             return None
@@ -199,3 +215,210 @@ class UserService:
             await session.commit()
             return True
         return False
+        
+    @classmethod
+    async def search_users(cls, session: AsyncSession, search_params: Dict[str, Any], skip: int = 0, limit: int = 10) -> List[User]:
+        """
+        Search for users based on various criteria.
+        
+        Parameters:
+        - session: Database session
+        - search_params: Dictionary containing search parameters
+            - search_term: General search term to match against name, email, or nickname
+            - role: Filter by user role (ADMIN, MANAGER, AUTHENTICATED, etc.)
+            - email_verified: Filter by email verification status (True/False)
+            - is_locked: Filter by account lock status (True/False)
+            - created_after: Filter users created after this date
+            - created_before: Filter users created before this date
+        - skip: Number of records to skip (for pagination)
+        - limit: Maximum number of records to return
+        
+        Returns:
+        - List of User objects matching the search criteria
+        """
+        try:
+            # Start with a base query
+            query = select(User)
+            
+            # Apply filters based on search parameters
+            filters = []
+            
+            # General search term (searches across multiple fields)
+            if "search_term" in search_params and search_params["search_term"]:
+                search_term = f"%{search_params['search_term']}%"
+                term_filter = or_(
+                    User.first_name.ilike(search_term),
+                    User.last_name.ilike(search_term),
+                    User.email.ilike(search_term),
+                    User.nickname.ilike(search_term)
+                )
+                filters.append(term_filter)
+            
+            # Role filter
+            if "role" in search_params and search_params["role"]:
+                filters.append(User.role == search_params["role"])
+            
+            # Email verification status
+            if "email_verified" in search_params and search_params["email_verified"] is not None:
+                filters.append(User.email_verified == search_params["email_verified"])
+            
+            # Account lock status
+            if "is_locked" in search_params and search_params["is_locked"] is not None:
+                filters.append(User.is_locked == search_params["is_locked"])
+            
+            # Date range filters
+            if "created_after" in search_params and search_params["created_after"]:
+                filters.append(User.created_at >= search_params["created_after"])
+                
+            if "created_before" in search_params and search_params["created_before"]:
+                filters.append(User.created_at <= search_params["created_before"])
+            
+            # Apply all filters to the query
+            if filters:
+                query = query.filter(and_(*filters))
+            
+            # Apply pagination
+            query = query.offset(skip).limit(limit)
+            
+            # Execute the query
+            result = await session.execute(query)
+            return result.scalars().all() if result else []
+            
+        except Exception as e:
+            logger.error(f"Error during user search: {e}")
+            return []
+    
+    @classmethod
+    async def get_profile_completion(cls, session: AsyncSession, user_id: UUID) -> Optional[dict]:
+        """
+        Get detailed profile completion information for a user.
+        
+        Parameters:
+        - session: Database session
+        - user_id: UUID of the user
+        
+        Returns:
+        - Dictionary with profile completion details or None if user not found
+        """
+        user = await cls.get_by_id(session, user_id)
+        if not user:
+            return None
+            
+        # Calculate current profile completion
+        user.calculate_profile_completion()
+        
+        # Get detailed completion information
+        completion_details = user.get_profile_completion_details()
+        
+        return completion_details
+    
+    @classmethod
+    async def update_profile_section(cls, session: AsyncSession, user_id: UUID, section: str, section_data: Dict[str, Any]) -> Optional[User]:
+        """
+        Update a specific section of a user's profile.
+        
+        Parameters:
+        - session: Database session
+        - user_id: UUID of the user
+        - section: Section to update ('basic_info', 'professional_info', 'preferences')
+        - section_data: Dictionary containing the data for the section
+        
+        Returns:
+        - Updated User object or None if user not found or update failed
+        """
+        user = await cls.get_by_id(session, user_id)
+        if not user:
+            return None
+            
+        try:
+            # Map section to corresponding fields
+            section_field_map = {
+                'basic_info': [
+                    'first_name', 'last_name', 'bio', 'profile_picture_url',
+                    'phone_number', 'date_of_birth', 'location'
+                ],
+                'professional_info': [
+                    'linkedin_profile_url', 'github_profile_url', 'twitter_profile_url',
+                    'personal_website_url', 'skills', 'work_experience', 'education'
+                ],
+                'preferences': [
+                    'interests', 'preferred_language', 'timezone'
+                ]
+            }
+            
+            # Check if section is valid
+            if section not in section_field_map:
+                logger.error(f"Invalid profile section: {section}")
+                return None
+                
+            # Filter data to only include fields in the specified section
+            update_data = {k: v for k, v in section_data.items() if k in section_field_map[section]}
+            
+            # Update user with filtered data
+            return await cls.update(session, user_id, update_data)
+            
+        except Exception as e:
+            logger.error(f"Error updating profile section {section}: {e}")
+            return None
+    
+    @classmethod
+    async def count_search_results(cls, session: AsyncSession, search_params: Dict[str, Any]) -> int:
+        """
+        Count the number of users matching the search criteria.
+        
+        Parameters:
+        - session: Database session
+        - search_params: Dictionary containing search parameters (same as search_users)
+        
+        Returns:
+        - Total count of matching users
+        """
+        try:
+            # Start with a base query
+            query = select(func.count()).select_from(User)
+            
+            # Apply filters based on search parameters
+            filters = []
+            
+            # General search term
+            if "search_term" in search_params and search_params["search_term"]:
+                search_term = f"%{search_params['search_term']}%"
+                term_filter = or_(
+                    User.first_name.ilike(search_term),
+                    User.last_name.ilike(search_term),
+                    User.email.ilike(search_term),
+                    User.nickname.ilike(search_term)
+                )
+                filters.append(term_filter)
+            
+            # Role filter
+            if "role" in search_params and search_params["role"]:
+                filters.append(User.role == search_params["role"])
+            
+            # Email verification status
+            if "email_verified" in search_params and search_params["email_verified"] is not None:
+                filters.append(User.email_verified == search_params["email_verified"])
+            
+            # Account lock status
+            if "is_locked" in search_params and search_params["is_locked"] is not None:
+                filters.append(User.is_locked == search_params["is_locked"])
+            
+            # Date range filters
+            if "created_after" in search_params and search_params["created_after"]:
+                filters.append(User.created_at >= search_params["created_after"])
+                
+            if "created_before" in search_params and search_params["created_before"]:
+                filters.append(User.created_at <= search_params["created_before"])
+            
+            # Apply all filters to the query
+            if filters:
+                query = query.filter(and_(*filters))
+            
+            # Execute the query
+            result = await session.execute(query)
+            count = result.scalar()
+            return count or 0
+            
+        except Exception as e:
+            logger.error(f"Error during search result count: {e}")
+            return 0

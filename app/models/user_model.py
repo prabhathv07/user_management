@@ -1,13 +1,14 @@
-from builtins import bool, int, str
-from datetime import datetime
+from builtins import bool, int, str, dict
+from datetime import datetime, date
 from enum import Enum
 import uuid
 from sqlalchemy import (
-    Column, String, Integer, DateTime, Boolean, func, Enum as SQLAlchemyEnum
+    Column, String, Integer, DateTime, Boolean, func, Enum as SQLAlchemyEnum, Date, Text
 )
-from sqlalchemy.dialects.postgresql import UUID, ENUM
+from sqlalchemy.dialects.postgresql import UUID, ENUM, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
+from typing import List, Optional
 
 class UserRole(Enum):
     """Enumeration of user roles within the application, stored as ENUM in the database."""
@@ -34,6 +35,18 @@ class User(Base):
         profile_picture_url (str): Optional URL to a profile picture.
         linkedin_profile_url (str): Optional LinkedIn profile URL.
         github_profile_url (str): Optional GitHub profile URL.
+        twitter_profile_url (str): Optional Twitter/X profile URL.
+        personal_website_url (str): Optional personal website URL.
+        phone_number (str): Optional phone number.
+        date_of_birth (date): Optional date of birth.
+        location (str): Optional location/address.
+        skills (JSONB): Optional JSON array of skills.
+        interests (JSONB): Optional JSON array of interests.
+        education (JSONB): Optional JSON array of education history.
+        work_experience (JSONB): Optional JSON array of work experience.
+        preferred_language (str): Optional preferred language.
+        timezone (str): Optional timezone.
+        profile_completion (int): Profile completion percentage.
         role (UserRole): Role of the user within the application.
         is_professional (bool): Flag indicating professional status.
         professional_status_updated_at (datetime): Timestamp of last professional status update.
@@ -49,6 +62,8 @@ class User(Base):
         verify_email(): Marks the user's email as verified.
         has_role(role_name): Checks if the user has a specified role.
         update_professional_status(status): Updates the professional status and logs the update time.
+        calculate_profile_completion(): Calculates and updates the profile completion percentage.
+        get_profile_completion_details(): Returns detailed information about profile completion status.
     """
     __tablename__ = "users"
     __mapper_args__ = {"eager_defaults": True}
@@ -58,10 +73,22 @@ class User(Base):
     email: Mapped[str] = Column(String(255), unique=True, nullable=False, index=True)
     first_name: Mapped[str] = Column(String(100), nullable=True)
     last_name: Mapped[str] = Column(String(100), nullable=True)
-    bio: Mapped[str] = Column(String(500), nullable=True)
+    bio: Mapped[str] = Column(Text, nullable=True)
     profile_picture_url: Mapped[str] = Column(String(255), nullable=True)
     linkedin_profile_url: Mapped[str] = Column(String(255), nullable=True)
     github_profile_url: Mapped[str] = Column(String(255), nullable=True)
+    twitter_profile_url: Mapped[str] = Column(String(255), nullable=True)
+    personal_website_url: Mapped[str] = Column(String(255), nullable=True)
+    phone_number: Mapped[str] = Column(String(20), nullable=True)
+    date_of_birth: Mapped[date] = Column(Date, nullable=True)
+    location: Mapped[str] = Column(String(255), nullable=True)
+    skills: Mapped[dict] = Column(JSONB, nullable=True, default=dict)
+    interests: Mapped[dict] = Column(JSONB, nullable=True, default=dict)
+    education: Mapped[dict] = Column(JSONB, nullable=True, default=dict)
+    work_experience: Mapped[dict] = Column(JSONB, nullable=True, default=dict)
+    preferred_language: Mapped[str] = Column(String(50), nullable=True)
+    timezone: Mapped[str] = Column(String(50), nullable=True)
+    profile_completion: Mapped[int] = Column(Integer, default=0)
     role: Mapped[UserRole] = Column(SQLAlchemyEnum(UserRole, name='UserRole', create_constraint=True), nullable=False)
     is_professional: Mapped[bool] = Column(Boolean, default=False)
     professional_status_updated_at: Mapped[datetime] = Column(DateTime(timezone=True), nullable=True)
@@ -95,3 +122,68 @@ class User(Base):
         """Updates the professional status and logs the update time."""
         self.is_professional = status
         self.professional_status_updated_at = func.now()
+        
+    def calculate_profile_completion(self) -> int:
+        """Calculates and updates the profile completion percentage based on filled profile fields."""
+        # Define fields that contribute to profile completion
+        profile_fields = [
+            self.first_name, self.last_name, self.bio, self.profile_picture_url,
+            self.linkedin_profile_url, self.github_profile_url, self.twitter_profile_url,
+            self.personal_website_url, self.phone_number, self.date_of_birth,
+            self.location, self.skills, self.interests, self.education,
+            self.work_experience, self.preferred_language, self.timezone
+        ]
+        
+        # Count non-empty fields
+        filled_fields = sum(1 for field in profile_fields if field)
+        
+        # Calculate percentage (rounded to nearest integer)
+        total_fields = len(profile_fields)
+        completion_percentage = round((filled_fields / total_fields) * 100)
+        
+        # Update the profile_completion field
+        self.profile_completion = completion_percentage
+        
+        return completion_percentage
+    
+    def get_profile_completion_details(self) -> dict:
+        """Returns detailed information about profile completion status."""
+        # Define all profile fields and their completion status
+        profile_fields = {
+            "basic_info": {
+                "first_name": bool(self.first_name),
+                "last_name": bool(self.last_name),
+                "profile_picture": bool(self.profile_picture_url),
+                "bio": bool(self.bio),
+                "phone_number": bool(self.phone_number),
+                "date_of_birth": bool(self.date_of_birth),
+                "location": bool(self.location),
+            },
+            "professional_info": {
+                "linkedin_profile": bool(self.linkedin_profile_url),
+                "github_profile": bool(self.github_profile_url),
+                "twitter_profile": bool(self.twitter_profile_url),
+                "personal_website": bool(self.personal_website_url),
+                "skills": bool(self.skills),
+                "work_experience": bool(self.work_experience),
+                "education": bool(self.education),
+            },
+            "preferences": {
+                "interests": bool(self.interests),
+                "preferred_language": bool(self.preferred_language),
+                "timezone": bool(self.timezone),
+            }
+        }
+        
+        # Calculate completion percentage for each section
+        section_completion = {}
+        for section, fields in profile_fields.items():
+            completed = sum(1 for field_complete in fields.values() if field_complete)
+            total = len(fields)
+            section_completion[section] = round((completed / total) * 100)
+        
+        return {
+            "overall_completion": self.profile_completion,
+            "section_completion": section_completion,
+            "field_status": profile_fields
+        }
