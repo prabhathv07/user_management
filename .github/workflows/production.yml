@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feature/profile-management
   pull_request:
     branches:
       - main
