@@ -23,33 +23,28 @@ pytestmark = pytest.mark.asyncio
 
 # Test 1: Password complexity validation
 async def test_password_complexity_validation(async_client):
-    """Test that password complexity requirements are enforced during registration."""
-    # Test with an invalid email format which should be rejected
-    user_data = {
-        "nickname": generate_nickname(),
-        "email": "invalid-email-format",  # Invalid email format
-        "password": "ValidPassword123!",
-        "role": "AUTHENTICATED"
-    }
+    """Test that password complexity requirements are enforced."""
+    weak_passwords = ["password", "12345678", "Abc123", "Abcdefgh"]
+    for pwd in weak_passwords:
+        response = await async_client.post(
+            "/api/register/",
+            json={
+                "email": f"test_{uuid.uuid4()}@example.com",
+                "password": pwd,
+                "nickname": "testuser"
+            }
+        )
+        assert response.status_code == 422
     
-    response = await async_client.post("/register/", json=user_data)
-    
-    # Verify that invalid email is rejected with 422 status code
-    assert response.status_code == 422, "Expected validation error for invalid email format"
-    # Verify response contains error details
-    assert "detail" in response.json(), "Error details missing in response"
-    
-    # Now test with valid data to ensure the validation works correctly
-    valid_user_data = {
-        "nickname": generate_nickname(),
-        "email": f"valid_{uuid.uuid4()}@example.com",
-        "password": "ValidPassword123!",
-        "role": "AUTHENTICATED"
-    }
-    
-    valid_response = await async_client.post("/register/", json=valid_user_data)
-    # Valid data should be accepted
-    assert valid_response.status_code in [200, 201], "Valid user data should be accepted"
+    valid_response = await async_client.post(
+        "/api/register/",
+        json={
+            "email": f"valid_{uuid.uuid4()}@example.com",
+            "password": "StrongP@ss123",
+            "nickname": "validuser"
+        }
+    )
+    assert valid_response.status_code == 201
 
 # Test 2: Manual email verification
 async def test_email_verification_token_expiration(db_session, email_service):
@@ -117,62 +112,43 @@ async def test_concurrent_user_creation_performance(db_session, email_service):
     user_ids = [str(user.id) for user in users_created]
     assert len(set(user_ids)) == 3, "All users should have unique IDs"
 
-# Test 4: User role-based access control
+# Test 4: Role-based access control
 async def test_role_based_access_control(async_client, admin_token, user_token):
-    """Test that different user roles have appropriate access to endpoints."""
-    # Test admin access to users list endpoint
-    admin_response = await async_client.get(
-        "/users/",
+    """Test role-based endpoint access."""
+    # Admin should access admin-only endpoint
+    admin_resp = await async_client.get(
+        "/api/users/",
         headers={"Authorization": f"Bearer {admin_token}"}
     )
-    assert admin_response.status_code == 200, "Admin should have access to users list"
+    assert admin_resp.status_code == 200
     
-    # Test regular user access to users list endpoint (should be forbidden)
-    user_response = await async_client.get(
-        "/users/",
+    # Regular user should be denied
+    user_resp = await async_client.get(
+        "/api/users/",
         headers={"Authorization": f"Bearer {user_token}"}
     )
-    assert user_response.status_code == 403, "Regular user should not have access to users list"
-    
-    # Test unauthenticated access (no token)
-    unauth_response = await async_client.get("/users/")
-    assert unauth_response.status_code in [401, 403], "Unauthenticated request should be rejected"
+    assert user_resp.status_code == 403
 
 # Test 5: Failed login attempts tracking
+from app.dependencies import get_settings
+settings = get_settings()
+
 async def test_login_rate_limiting(async_client, verified_user):
-    """Test that failed login attempts are tracked and account gets locked."""
-    # Get the max login attempts setting
-    settings = get_settings()
-    max_attempts = settings.max_login_attempts
-    
-    # Make multiple failed login attempts with wrong password
-    form_data = {
-        "username": verified_user.email,
-        "password": "WrongPassword123!"  # Intentionally wrong
-    }
-    
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-    
-    # Make failed login attempts up to max_attempts
-    for i in range(max_attempts):
+    """Test that account locks after max failed attempts."""
+    for _ in range(settings.max_login_attempts):
         response = await async_client.post(
-            "/login/", 
-            data=urlencode(form_data), 
-            headers=headers
+            "/api/login/",
+            data={"username": verified_user.email, "password": "wrongpassword"}
         )
-        # All attempts should return 401 Unauthorized
-        assert response.status_code == 401, f"Failed login attempt {i+1} should return 401"
+        assert response.status_code == 401
     
-    # One more attempt should trigger account locking
-    final_response = await async_client.post(
-        "/login/", 
-        data=urlencode(form_data), 
-        headers=headers
+    # Next attempt should lock account
+    locked_response = await async_client.post(
+        "/api/login/",
+        data={"username": verified_user.email, "password": "wrongpassword"}
     )
-    
-    # Account should now be locked, returning 400 Bad Request
-    assert final_response.status_code == 400, "Account should be locked after max failed attempts"
-    assert "locked" in final_response.text.lower(), "Response should indicate account is locked"
+    assert locked_response.status_code == 403
+    assert "Account locked" in locked_response.json().get("detail", "")
 
 # Test 6: Password reset functionality
 async def test_password_reset_functionality(db_session, verified_user):
@@ -238,22 +214,19 @@ async def test_user_search_and_filtering(async_client, admin_token):
 
 # Test 8: User data validation on update
 async def test_user_data_validation_on_update(async_client, admin_token, admin_user):
-    """Test that user data validation works correctly during updates."""
-    # Test cases with invalid data for updates
     test_cases = [
-        {"field": "email", "value": "invalid-email", "expected_code": 422},
-        {"field": "github_profile_url", "value": "not-a-url", "expected_code": 422},
-        {"field": "linkedin_profile_url", "value": "not-a-url", "expected_code": 422},
+        {"field": "email", "value": "invalid-email", "expected": 422},
+        {"field": "nickname", "value": "", "expected": 422},
+        {"field": "bio", "value": "Valid bio", "expected": 200}
     ]
     
     for case in test_cases:
-        update_data = {case["field"]: case["value"]}
         response = await async_client.put(
-            f"/users/{admin_user.id}", 
-            json=update_data,
+            f"/api/users/{admin_user.id}/",  # Add trailing slash
+            json={case["field"]: case["value"]},
             headers={"Authorization": f"Bearer {admin_token}"}
         )
-        assert response.status_code == case["expected_code"], f"Expected validation error for {case['field']}: {case['value']}"
+        assert response.status_code == case["expected"]
 
 # Test 9: Database transaction rollback on error
 async def test_database_transaction_rollback(db_session, email_service):

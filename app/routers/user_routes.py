@@ -21,20 +21,33 @@ Key Highlights:
 from builtins import dict, int, len, str
 from datetime import timedelta
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Request, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.dependencies import get_current_user, get_db, get_email_service, require_role
+from app.dependencies import get_current_user, get_current_active_user, get_db, get_email_service, require_role
 from app.schemas.pagination_schema import EnhancedPagination
 from app.schemas.token_schema import TokenResponse
-from app.schemas.user_schemas import LoginRequest, UserBase, UserCreate, UserListResponse, UserResponse, UserUpdate
+from app.schemas.user_schemas import (
+    LoginRequest, 
+    UserBase, 
+    UserCreate, 
+    UserListResponse, 
+    UserResponse, 
+    UserUpdate, 
+    UserSearchParams, 
+    PaginationParams, 
+    ProfileCompletionDetails, 
+    ProfileSectionUpdate
+)
 from app.services.user_service import UserService
-from app.services.jwt_service import create_access_token
+from app.services.jwt_service import create_access_token, decode_token
+from app.models.user_model import User
 from app.utils.link_generation import create_user_links, generate_pagination_links
 from app.dependencies import get_settings
 from app.services.email_service import EmailService
+from app.utils.password_utils import verify_password
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login/")
 settings = get_settings()
 @router.get("/users/{user_id}", response_model=UserResponse, name="get_user", tags=["User Management Requires (Admin or Manager Roles)"])
 async def get_user(user_id: UUID, request: Request, db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme), current_user: dict = Depends(require_role(["ADMIN", "MANAGER"]))):
@@ -177,7 +190,13 @@ async def list_users(
     users = await UserService.list_users(db, skip, limit)
 
     user_responses = [
-        UserResponse.model_validate(user) for user in users
+        UserResponse.model_validate({
+            **user.__dict__,
+            "skills": user.skills or [],
+            "interests": user.interests or [],
+            "education": user.education or [],
+            "work_experience": user.work_experience or []
+        }) for user in users
     ]
     
     pagination_links = generate_pagination_links(request, skip, limit, total_users)
@@ -201,38 +220,78 @@ async def register(user_data: UserCreate, session: AsyncSession = Depends(get_db
 
 @router.post("/login/", response_model=TokenResponse, tags=["Login and Registration"])
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), session: AsyncSession = Depends(get_db)):
-    if await UserService.is_account_locked(session, form_data.username):
-        raise HTTPException(status_code=400, detail="Account locked due to too many failed login attempts.")
-
-    user = await UserService.login_user(session, form_data.username, form_data.password)
-    if user:
-        access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-
-        access_token = create_access_token(
-            data={"sub": user.email, "role": str(user.role.name)},
-            expires_delta=access_token_expires
+    """
+    Authenticates a user and returns a JWT token.
+    
+    - **username**: The user's email address
+    - **password**: The user's password
+    """
+    if not form_data.username or not form_data.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email and password are required"
         )
 
-        return {"access_token": access_token, "token_type": "bearer"}
-    raise HTTPException(status_code=401, detail="Incorrect email or password.")
-
-@router.post("/login/", include_in_schema=False, response_model=TokenResponse, tags=["Login and Registration"])
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), session: AsyncSession = Depends(get_db)):
-    if await UserService.is_account_locked(session, form_data.username):
-        raise HTTPException(status_code=400, detail="Account locked due to too many failed login attempts.")
-
-    user = await UserService.login_user(session, form_data.username, form_data.password)
-    if user:
-        access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-
-        access_token = create_access_token(
-            data={"sub": user.email, "role": str(user.role.name)},
-            expires_delta=access_token_expires
+    user = await UserService.get_by_email(session, form_data.username)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
         )
+    
+    if user.is_locked:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account locked due to too many failed login attempts"
+        )
+    
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified"
+        )
+    
+    if not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+    
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": user.email, "role": str(user.role.name)},
+        expires_delta=access_token_expires
+    )
+    
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer"
+    )
 
-        return {"access_token": access_token, "token_type": "bearer"}
-    raise HTTPException(status_code=401, detail="Incorrect email or password.")
-
+@router.post("/refresh/", response_model=TokenResponse)
+async def refresh_token(
+    refresh_token: str = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db)
+):
+    """Refresh access token using refresh token."""
+    try:
+        payload = decode_token(refresh_token)
+        email = payload.get("sub")
+        if not email:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        user = await UserService.get_by_email(db, email)
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+            
+        new_token = create_access_token(
+            data={"sub": user.email, "role": str(user.role.name)},
+            expires_delta=timedelta(minutes=settings.access_token_expire_minutes)
+        )
+        return {"access_token": new_token, "token_type": "bearer"}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 @router.get("/verify-email/{user_id}/{token}", status_code=status.HTTP_200_OK, name="verify_email", tags=["Login and Registration"])
 async def verify_email(user_id: UUID, token: str, db: AsyncSession = Depends(get_db), email_service: EmailService = Depends(get_email_service)):
@@ -245,3 +304,77 @@ async def verify_email(user_id: UUID, token: str, db: AsyncSession = Depends(get
     if await UserService.verify_email_with_token(db, user_id, token):
         return {"message": "Email verified successfully"}
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification token")
+
+
+# Profile management routes
+@router.get("/me/profile", response_model=UserResponse, status_code=status.HTTP_200_OK, tags=["Profile Management"])
+async def get_own_profile(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get the current user's profile information.
+    """
+    return current_user
+
+@router.put("/me/profile", response_model=UserResponse, status_code=status.HTTP_200_OK, tags=["Profile Management"])
+async def update_own_profile(
+    update_data: UserUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Update the current user's profile information.
+    """
+    updated_user = await UserService.update(db, current_user.id, update_data.model_dump(exclude_unset=True))
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return updated_user
+
+@router.put("/me/profile/{section}", response_model=UserResponse, status_code=status.HTTP_200_OK, tags=["Profile Management"])
+async def update_profile_section(
+    section: str,
+    section_data: ProfileSectionUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Update a specific section of the current user's profile.
+    
+    Section can be one of: 'basic_info', 'professional_info', 'preferences'
+    """
+    if section not in ['basic_info', 'professional_info', 'preferences']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid section: {section}. Must be one of: 'basic_info', 'professional_info', 'preferences'"
+        )
+        
+    updated_user = await UserService.update_profile_section(
+        db, current_user.id, section, section_data.model_dump(exclude_unset=True)
+    )
+    
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found or update failed"
+        )
+    return updated_user
+
+@router.get("/me/profile-completion", response_model=ProfileCompletionDetails, status_code=status.HTTP_200_OK, tags=["Profile Management"])
+async def get_profile_completion(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get detailed information about the current user's profile completion status.
+    """
+    completion_details = await UserService.get_profile_completion(db, current_user.id)
+    if not completion_details:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return completion_details
