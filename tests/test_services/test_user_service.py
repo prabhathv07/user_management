@@ -5,6 +5,7 @@ from app.dependencies import get_settings
 from app.models.user_model import User, UserRole
 from app.services.user_service import UserService
 from app.utils.nickname_gen import generate_nickname
+import uuid
 
 pytestmark = pytest.mark.asyncio
 
@@ -37,7 +38,8 @@ async def test_get_by_id_user_exists(db_session, user):
 
 # Test fetching a user by ID when the user does not exist
 async def test_get_by_id_user_does_not_exist(db_session):
-    non_existent_user_id = "non-existent-id"
+    # Generate valid but non-existent UUID
+    non_existent_user_id = uuid.uuid4()
     retrieved_user = await UserService.get_by_id(db_session, non_existent_user_id)
     assert retrieved_user is None
 
@@ -80,7 +82,7 @@ async def test_delete_user_exists(db_session, user):
 
 # Test attempting to delete a user who does not exist
 async def test_delete_user_does_not_exist(db_session):
-    non_existent_user_id = "non-existent-id"
+    non_existent_user_id = uuid.uuid4()
     deletion_success = await UserService.delete(db_session, non_existent_user_id)
     assert deletion_success is False
 

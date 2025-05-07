@@ -154,11 +154,7 @@ class UserService:
                 await session.commit()
                 return user
             else:
-                user.failed_login_attempts += 1
-                if user.failed_login_attempts >= settings.max_login_attempts:
-                    user.is_locked = True
-                session.add(user)
-                await session.commit()
+                await cls.increment_failed_login_attempts(session, user)
         return None
 
     @classmethod
@@ -422,3 +418,54 @@ class UserService:
         except Exception as e:
             logger.error(f"Error during search result count: {e}")
             return 0
+
+    @classmethod
+    async def increment_failed_login_attempts(cls, db: AsyncSession, user: User) -> None:
+        user.failed_login_attempts += 1
+        if user.failed_login_attempts >= settings.max_login_attempts:
+            user.is_locked = True
+        await db.commit()
+        await db.refresh(user)
+        
+    @classmethod
+    async def update_professional_status(cls, session: AsyncSession, user_id: UUID, is_professional: bool, email_service: EmailService = None) -> Optional[User]:
+        """
+        Update a user's professional status and send notification if status is upgraded to professional.
+        
+        Parameters:
+        - session: Database session
+        - user_id: UUID of the user
+        - is_professional: New professional status
+        - email_service: Optional email service for sending notifications
+        
+        Returns:
+        - Updated User object or None if user not found or update failed
+        """
+        try:
+            user = await cls.get_by_id(session, user_id)
+            if not user:
+                logger.error(f"User with ID {user_id} not found")
+                return None
+                
+            # Determine if we need to notify the user (only when upgrading)
+            send_notification = not user.is_professional and is_professional
+
+            # Update the status and timestamp
+            user.update_professional_status(is_professional)
+
+            # Persist changes
+            await session.commit()
+            await session.refresh(user)
+
+            # Send notification after commit to avoid transactional side-effects
+            if send_notification and email_service:
+                try:
+                    await email_service.send_professional_status_notification(user)
+                except Exception as e:
+                    logger.error(f"Failed to send notification: {e}")
+                    
+            return user
+        except Exception as e:
+            logger.error(f"Error updating professional status: {e}")
+            await session.rollback()
+            return None

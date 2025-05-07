@@ -38,7 +38,7 @@ async def exception_handler(request, exc):
     return JSONResponse(status_code=500, content={"message": "An unexpected error occurred."})
 
 # Include the main user routes router
+# Mount without prefix (e.g., /users)
+app.include_router(user_routes.router, tags=["User Management"])
+# Mount with /api prefix to support /api/users etc.
 app.include_router(user_routes.router, prefix="/api", tags=["User Management"])
-
-# Explicitly include login route without prefix since it's already defined with /login/
-app.include_router(user_routes.router)
