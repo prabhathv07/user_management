@@ -40,7 +40,8 @@ from app.services.jwt_service import create_access_token
 fake = Faker()
 
 settings = get_settings()
-TEST_DATABASE_URL = settings.database_url.replace("postgresql://", "postgresql+asyncpg://")
+# Temporarily use localhost for testing
+TEST_DATABASE_URL = "postgresql+asyncpg://user:password@localhost:5432/myappdb"
 engine = create_async_engine(TEST_DATABASE_URL, echo=settings.debug)
 AsyncTestingSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 AsyncSessionScoped = scoped_session(AsyncTestingSessionLocal)
@@ -163,14 +164,12 @@ async def unverified_user(db_session):
 @pytest.fixture(scope="function")
 async def users_with_same_role_50_users(db_session):
     users = []
-    for i in range(50):
-        # Generate a unique nickname by adding a UUID suffix
-        unique_suffix = str(uuid4())[:8]
+    for _ in range(50):
         user_data = {
-            "nickname": f"{fake.user_name()}_{unique_suffix}",  # Ensure uniqueness
+            "nickname": fake.user_name(),
             "first_name": fake.first_name(),
             "last_name": fake.last_name(),
-            "email": f"{unique_suffix}_{fake.email()}",  # Also ensure unique emails
+            "email": fake.email(),
             "hashed_password": fake.password(),
             "role": UserRole.AUTHENTICATED,
             "email_verified": False,
