@@ -89,6 +89,7 @@ jobs:
           tags: prabhath090/wis_club_api:local-test
           platforms: linux/amd64  # Only build for local platform on feature branches
           outputs: type=docker
+          context: .  # Build from the current workspace, not a specific commit
       
       # Only on main branch - build and push to Docker Hub
       - name: Build and push Docker image (main branch)
@@ -100,6 +101,7 @@ jobs:
           platforms: linux/amd64,linux/arm64 # Multi-platform support
           cache-from: type=registry,ref=prabhath090/wis_club_api:cache
           cache-to: type=inline,mode=max
+          context: .  # Build from the current workspace, not a specific commit
           
       # Scan the local image when on feature branches
       - name: Scan local Docker image (feature branch)
