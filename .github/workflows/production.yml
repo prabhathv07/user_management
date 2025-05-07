@@ -90,7 +90,6 @@ jobs:
           platforms: linux/amd64  # Only build for local platform on feature branches
           outputs: type=docker
           context: .
-          git-checkout: false # Disable git checkout, use the files as-is
       
       # Only on main branch - build and push to Docker Hub
       - name: Build and push Docker image (main branch)
@@ -103,7 +102,6 @@ jobs:
           cache-from: type=registry,ref=prabhath090/wis_club_api:cache
           cache-to: type=inline,mode=max
           context: .
-          git-checkout: false # Disable git checkout, use the files as-is
           
       # Scan the local image when on feature branches
       - name: Scan local Docker image (feature branch)
