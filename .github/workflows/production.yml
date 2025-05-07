@@ -88,11 +88,13 @@ jobs:
           cache-from: type=registry,ref=prabhath090/wis_club_api:cache
           cache-to: type=inline,mode=max
           
+      # Only scan the image when we're pushing (on main branch)
       - name: Scan the Docker image
+        if: steps.push_flag.outputs.PUSH == 'true'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'prabhath090/wis_club_api:${{ github.sha }}'
           format: 'table'
-          exit-code: '0' # Changed to 0 to continue even with vulnerabilities
+          exit-code: '0' # Continue even with vulnerabilities
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
