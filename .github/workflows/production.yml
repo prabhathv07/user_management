@@ -72,6 +72,16 @@ jobs:
           fi
       
       # Only login if we're going to push
+      - name: Check for required secrets
+        if: steps.push_flag.outputs.PUSH == 'true'
+        run: |
+          if [[ -z "${{ secrets.DOCKERHUB_USERNAME }}" || -z "${{ secrets.DOCKERHUB_TOKEN }}" ]]; then
+            echo "::error::Required secrets DOCKERHUB_USERNAME and/or DOCKERHUB_TOKEN are not available!"
+            exit 1
+          else
+            echo "All required secrets are available"
+          fi
+      
       - name: Log in to DockerHub
         if: steps.push_flag.outputs.PUSH == 'true'
         uses: docker/login-action@v3
