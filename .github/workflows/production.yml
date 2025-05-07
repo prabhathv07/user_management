@@ -79,17 +79,41 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
           
-      - name: Build and push Docker image
+      # Build the Docker image - use different settings based on branch
+      - name: Build Docker image (feature branch)
+        if: steps.push_flag.outputs.PUSH != 'true'
         uses: docker/build-push-action@v5
         with:
-          push: ${{ steps.push_flag.outputs.PUSH }}
+          push: false
+          load: true  # Load image to Docker daemon instead of pushing
+          tags: prabhath090/wis_club_api:local-test
+          platforms: linux/amd64  # Only build for local platform on feature branches
+          outputs: type=docker
+      
+      # Only on main branch - build and push to Docker Hub
+      - name: Build and push Docker image (main branch)
+        if: steps.push_flag.outputs.PUSH == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          push: true
           tags: prabhath090/wis_club_api:${{ github.sha }} # Uses the Git SHA for tagging
           platforms: linux/amd64,linux/arm64 # Multi-platform support
           cache-from: type=registry,ref=prabhath090/wis_club_api:cache
           cache-to: type=inline,mode=max
           
-      # Only scan the image when we're pushing (on main branch)
-      - name: Scan the Docker image
+      # Scan the local image when on feature branches
+      - name: Scan local Docker image (feature branch)
+        if: steps.push_flag.outputs.PUSH != 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'prabhath090/wis_club_api:local-test'
+          format: 'table'
+          exit-code: '0' # Continue even with vulnerabilities
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+          
+      # Scan the pushed image when on main branch
+      - name: Scan Docker image (main branch)
         if: steps.push_flag.outputs.PUSH == 'true'
         uses: aquasecurity/trivy-action@master
         with:
@@ -98,3 +122,8 @@ jobs:
           exit-code: '0' # Continue even with vulnerabilities
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
+          
+      # Mark job as successful on feature branches
+      - name: Feature branch build success
+        if: steps.push_flag.outputs.PUSH != 'true'
+        run: echo "Docker image build completed successfully on feature branch"
