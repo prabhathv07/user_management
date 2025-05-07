@@ -4,7 +4,6 @@
 
 ## Introduction: Buckle Up for the Ride of a Lifetime 🚀🎬
 
-Welcome to the User Management System project - an epic open-source adventure crafted by the legendary Professor Keith Williams for his rockstar students at NJIT! 🏫👨‍🏫⭐ This project is your gateway to coding glory, providing a bulletproof foundation for a user management system that will blow your mind! 🤯 You'll bridge the gap between the realms of seasoned software pros and aspiring student developers like yourselves. 
 
 ### [Instructor Video - Project Overview and Tips](https://youtu.be/gairLNAp6mA) 🎥
 
@@ -53,3 +52,11 @@ Don't forget to always have a working main branch deploying to Docker at all tim
 Let's embark on this epic coding adventure together and conquer the world of software engineering! You've got this, coding rockstars! 🚀🌟✨
 ## Trigger GitHub Actions Workflow
 This line was added to trigger the CI/CD pipeline.
+
+## Fixed Issues
+
+1. DockerHub Auth (Closes #1) - Fixed in 1a8e1ac
+2. Unique Constraints (Closes #2) - Fixed in 1a8e1ac
+3. Trivy Scan (Closes #3) - Fixed in 597cf4c
+4. Test Data (Closes #4) - Fixed in 1a8e1ac
+5. Performance Test (Closes #5) - Fixed in 1a8e1ac
