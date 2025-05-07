@@ -163,14 +163,12 @@ async def unverified_user(db_session):
 @pytest.fixture(scope="function")
 async def users_with_same_role_50_users(db_session):
     users = []
-    for i in range(50):
-        # Generate a unique nickname by adding a UUID suffix
-        unique_suffix = str(uuid4())[:8]
+    for _ in range(50):
         user_data = {
-            "nickname": f"{fake.user_name()}_{unique_suffix}",  # Ensure uniqueness
+            "nickname": fake.user_name(),
             "first_name": fake.first_name(),
             "last_name": fake.last_name(),
-            "email": f"{unique_suffix}_{fake.email()}",  # Also ensure unique emails
+            "email": fake.email(),
             "hashed_password": fake.password(),
             "role": UserRole.AUTHENTICATED,
             "email_verified": False,
