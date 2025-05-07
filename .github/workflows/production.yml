@@ -54,6 +54,8 @@ jobs:
   build-and-push-docker:
     needs: test
     runs-on: ubuntu-latest
+    # Only run Docker build and push on main branch
+    if: github.ref == 'refs/heads/main'
     environment: production
     steps:
       - uses: actions/checkout@v4
