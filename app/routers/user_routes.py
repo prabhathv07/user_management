@@ -47,8 +47,9 @@ from app.dependencies import get_settings
 from app.services.email_service import EmailService
 from app.utils.password_utils import verify_password
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login/")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/")
 settings = get_settings()
+
 @router.get("/users/{user_id}", response_model=UserResponse, name="get_user", tags=["User Management Requires (Admin or Manager Roles)"])
 async def get_user(user_id: UUID, request: Request, db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme), current_user: dict = Depends(require_role(["ADMIN", "MANAGER"]))):
     """
@@ -332,7 +333,14 @@ async def update_own_profile(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    return updated_user
+    # Ensure list fields are properly formatted (avoid empty dicts)
+    return UserResponse.model_validate({
+        **updated_user.__dict__,
+        "skills": updated_user.skills or [],
+        "interests": updated_user.interests or [],
+        "education": updated_user.education or [],
+        "work_experience": updated_user.work_experience or []
+    })
 
 @router.put("/me/profile/{section}", response_model=UserResponse, status_code=status.HTTP_200_OK, tags=["Profile Management"])
 async def update_profile_section(
@@ -361,7 +369,14 @@ async def update_profile_section(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found or update failed"
         )
-    return updated_user
+    # Ensure list fields are properly formatted (avoid empty dicts)
+    return UserResponse.model_validate({
+        **updated_user.__dict__,
+        "skills": updated_user.skills or [],
+        "interests": updated_user.interests or [],
+        "education": updated_user.education or [],
+        "work_experience": updated_user.work_experience or []
+    })
 
 @router.get("/me/profile-completion", response_model=ProfileCompletionDetails, status_code=status.HTTP_200_OK, tags=["Profile Management"])
 async def get_profile_completion(
@@ -378,3 +393,36 @@ async def get_profile_completion(
             detail="User not found"
         )
     return completion_details
+
+@router.put("/users/{user_id}/professional-status", response_model=UserResponse, status_code=status.HTTP_200_OK, tags=["User Management Requires (Admin or Manager Roles)"])
+async def update_user_professional_status(
+    user_id: UUID,
+    is_professional: bool = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+    email_service: EmailService = Depends(get_email_service),
+    token: str = Depends(oauth2_scheme),
+    current_user: dict = Depends(require_role(["ADMIN", "MANAGER"]))
+):
+    """
+    Update a user's professional status.
+    
+    Only managers and admins can update a user's professional status.
+    When a user is upgraded to professional status, they will receive a notification email.
+    
+    - **user_id**: UUID of the user to update.
+    - **is_professional**: Boolean indicating whether the user should have professional status.
+    """
+    updated_user = await UserService.update_professional_status(db, user_id, is_professional, email_service)
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found or update failed"
+        )
+    # Ensure list fields are properly formatted (avoid empty dicts)
+    return UserResponse.model_validate({
+        **updated_user.__dict__,
+        "skills": updated_user.skills or [],
+        "interests": updated_user.interests or [],
+        "education": updated_user.education or [],
+        "work_experience": updated_user.work_experience or []
+    })

@@ -12,8 +12,9 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.routers.user_routes import verify_email, register, login, list_users, create_user, delete_user, update_user, get_user
-from app.schemas.user_schemas import UserCreate, UserUpdate
+from app.schemas.user_schemas import UserCreate, UserUpdate, UserResponse
 from app.models.user_model import User, UserRole
+from app.schemas.token_schema import TokenResponse
 from app.services.user_service import UserService
 from app.services.email_service import EmailService
 
@@ -154,27 +155,30 @@ class TestUserRoutes:
         mock_user = MagicMock()
         mock_user.email = "test@example.com"
         mock_user.role.name = "AUTHENTICATED"
+        mock_user.is_locked = False
+        mock_user.email_verified = True
+        mock_user.hashed_password = "hashed_password"
         
-        # Mock UserService methods
-        async def mock_is_locked(*args, **kwargs):
-            return False
-        
-        async def mock_login(*args, **kwargs):
+        # Mock UserService.get_by_email to return our mock user
+        async def mock_get_by_email(*args, **kwargs):
             return mock_user
         
-        monkeypatch.setattr(UserService, "is_account_locked", mock_is_locked)
-        monkeypatch.setattr(UserService, "login_user", mock_login)
+        monkeypatch.setattr(UserService, "get_by_email", mock_get_by_email)
         
-        # Mock create_access_token
-        with patch("app.routers.user_routes.create_access_token") as mock_create_token:
-            mock_create_token.return_value = "test_token"
+        # Mock verify_password to return True
+        with patch("app.routers.user_routes.verify_password") as mock_verify_password:
+            mock_verify_password.return_value = True
             
-            # Call the endpoint
-            response = await login(form_data, mock_db)
-            
-            # Assert
-            assert response == {"access_token": "test_token", "token_type": "bearer"}
-            mock_create_token.assert_called_once()
+            # Mock create_access_token
+            with patch("app.routers.user_routes.create_access_token") as mock_create_token:
+                mock_create_token.return_value = "test_token"
+                
+                # Call the endpoint
+                response = await login(form_data, mock_db)
+                
+                # Assert
+                assert response == TokenResponse(access_token="test_token", token_type="bearer")
+                mock_create_token.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_login_account_locked(self, monkeypatch):
@@ -187,18 +191,23 @@ class TestUserRoutes:
         form_data.username = "locked@example.com"
         form_data.password = "Password123!"
         
-        # Mock UserService.is_account_locked to return True
-        async def mock_is_locked(*args, **kwargs):
-            return True
+        # Mock user object with locked account
+        mock_user = MagicMock()
+        mock_user.email = "locked@example.com"
+        mock_user.is_locked = True
         
-        monkeypatch.setattr(UserService, "is_account_locked", mock_is_locked)
+        # Mock UserService.get_by_email to return our locked user
+        async def mock_get_by_email(*args, **kwargs):
+            return mock_user
+        
+        monkeypatch.setattr(UserService, "get_by_email", mock_get_by_email)
         
         # Call the endpoint and expect exception
         with pytest.raises(HTTPException) as excinfo:
             await login(form_data, mock_db)
         
         # Assert
-        assert excinfo.value.status_code == 400
+        assert excinfo.value.status_code == 403
         assert "Account locked" in excinfo.value.detail
 
     @pytest.mark.asyncio
@@ -212,23 +221,30 @@ class TestUserRoutes:
         form_data.username = "test@example.com"
         form_data.password = "WrongPassword"
         
-        # Mock UserService methods
-        async def mock_is_locked(*args, **kwargs):
-            return False
+        # Mock user object
+        mock_user = MagicMock()
+        mock_user.email = "test@example.com"
+        mock_user.is_locked = False
+        mock_user.email_verified = True
+        mock_user.hashed_password = "correct_hashed_password"
         
-        async def mock_login(*args, **kwargs):
-            return None
+        # Mock UserService.get_by_email to return our user
+        async def mock_get_by_email(*args, **kwargs):
+            return mock_user
         
-        monkeypatch.setattr(UserService, "is_account_locked", mock_is_locked)
-        monkeypatch.setattr(UserService, "login_user", mock_login)
+        monkeypatch.setattr(UserService, "get_by_email", mock_get_by_email)
         
-        # Call the endpoint and expect exception
-        with pytest.raises(HTTPException) as excinfo:
-            await login(form_data, mock_db)
-        
-        # Assert
-        assert excinfo.value.status_code == 401
-        assert "Incorrect email or password" in excinfo.value.detail
+        # Mock verify_password to return False (wrong password)
+        with patch("app.routers.user_routes.verify_password") as mock_verify_password:
+            mock_verify_password.return_value = False
+            
+            # Call the endpoint and expect exception
+            with pytest.raises(HTTPException) as excinfo:
+                await login(form_data, mock_db)
+            
+            # Assert
+            assert excinfo.value.status_code == 401
+            assert "Incorrect email or password" in excinfo.value.detail
 
     @pytest.mark.asyncio
     async def test_list_users(self, monkeypatch):

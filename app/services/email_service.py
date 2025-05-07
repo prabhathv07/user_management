@@ -19,7 +19,8 @@ class EmailService:
         subject_map = {
             'email_verification': "Verify Your Account",
             'password_reset': "Password Reset Instructions",
-            'account_locked': "Account Locked Notification"
+            'account_locked': "Account Locked Notification",
+            'professional_status_upgrade': "Congratulations! Professional Status Upgrade"
         }
 
         if email_type not in subject_map:
@@ -31,7 +32,15 @@ class EmailService:
     async def send_verification_email(self, user: User):
         verification_url = f"{settings.server_base_url}verify-email/{user.id}/{user.verification_token}"
         await self.send_user_email({
-            "name": user.first_name,
+            "name": user.first_name or user.nickname,
             "verification_url": verification_url,
             "email": user.email
         }, 'email_verification')
+        
+    async def send_professional_status_notification(self, user: User):
+        """Send notification email when a user's professional status is upgraded"""
+        await self.send_user_email({
+            "name": user.first_name or user.nickname,
+            "email": user.email,
+            "upgrade_date": user.professional_status_updated_at.strftime("%B %d, %Y") if user.professional_status_updated_at else "recently"
+        }, 'professional_status_upgrade')
